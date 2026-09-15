@@ -145,7 +145,8 @@ Dos nombres públicos, y es una decisión de seguridad:
 
 | Servicio | Público | Por qué |
 |---|---|---|
-| Frontend | sí | Es lo que usa una persona; su proxy de Nitro alcanza las APIs por la red interna |
+| Sitio público | sí | Marketing y directorio. **Anónimo de punta a punta**: no despliega rutas de sesión, así que no hay forma de establecer una — comprobado contra la imagen, `POST /api/auth/login` responde 404 |
+| Consola | sí, en su propio nombre | Sólo autenticada. Su hostname aparte es lo que permite restringirla sin tocar lo que debe ser público. Su proxy de Nitro alcanza las APIs por la red interna |
 | Platform | sí | La notificación de pago es anónima y la manda el gateway desde afuera |
 | **PIMA** | **no** | Sólo la llaman servicios |
 | **Turismo** | **no** | Lo público suyo lo sirve el frontend |
@@ -216,9 +217,9 @@ La pregunta que originó esta forma:
 
 | Archivo | Cuántos |
 |---|---|
-| `Dockerfile` (no es YAML) | 4, uno por repo de código |
+| `Dockerfile` (no es YAML) | 5 — tres APIs y las dos aplicaciones del frontend |
 | Workflow reutilizable de build | **1**, acá |
-| Workflow por repo que lo invoca | 4 × ~10 líneas |
+| Workflow por repo | 3 × ~10 líneas invocando el reutilizable, más el del frontend |
 | `docker-compose.yml` | **1** |
 | Workflow de release | **1** |
 

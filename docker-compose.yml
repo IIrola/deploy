@@ -139,8 +139,12 @@ services:
       pima-api: { condition: service_started }
     networks: [data, services]
 
-  bitfront:
-    image: ghcr.io/${GHCR_OWNER}/bitfront:${BITFRONT_TAG:-latest}
+  # El frontend son dos aplicaciones, y la diferencia entre ellas es de seguridad y no de
+  # organización: la consola es sólo autenticada, la web es anónima de punta a punta. La web no
+  # despliega rutas de sesión, así que **no hay forma de establecer una sesión ahí** — comprobado
+  # contra la imagen: `POST /api/auth/login` responde 404.
+  console:
+    image: ghcr.io/${GHCR_OWNER}/console:${CONSOLE_TAG:-latest}
     <<: *restart
     environment:
       NODE_ENV: production
@@ -149,7 +153,23 @@ services:
       # El navegador no habla con las APIs: el proxy de Nitro las alcanza por la red interna.
       NUXT_PLATFORM_API_URL: http://platform-api:8080
       NUXT_BIT_API_URL: http://tourism-api:8080
-      NUXT_SESSION_SECRET: ${SESSION_SECRET:?falta SESSION_SECRET en .env}
+      # Adónde vuelve el enlace del encabezado. Público porque el navegador lo sigue.
+      NUXT_PUBLIC_SITE_URL: https://${APP_DOMAIN}
+    depends_on:
+      platform-api: { condition: service_started }
+      tourism-api: { condition: service_started }
+    networks: [services, edge]
+
+  web:
+    image: ghcr.io/${GHCR_OWNER}/web:${WEB_TAG:-latest}
+    <<: *restart
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      NUXT_PLATFORM_API_URL: http://platform-api:8080
+      NUXT_BIT_API_URL: http://tourism-api:8080
+      NUXT_PUBLIC_CONSOLE_URL: https://${CONSOLE_DOMAIN}
     depends_on:
       platform-api: { condition: service_started }
       tourism-api: { condition: service_started }
@@ -164,6 +184,7 @@ services:
       - "443:443"
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?falta APP_DOMAIN en .env}
+      CONSOLE_DOMAIN: ${CONSOLE_DOMAIN:?falta CONSOLE_DOMAIN en .env}
       PLATFORM_DOMAIN: ${PLATFORM_DOMAIN:?falta PLATFORM_DOMAIN en .env}
       ACME_EMAIL: ${ACME_EMAIL:?falta ACME_EMAIL en .env}
     volumes:
