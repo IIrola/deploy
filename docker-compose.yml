@@ -1,0 +1,197 @@
+# La topologia completa, en un archivo.
+#
+# Lo que NO esta aca, a proposito:
+#   - Ningun secreto. Viven en .env junto a este archivo, en el VPS, con permisos 0600. El
+#     pipeline no los ve, y rotar uno no toca el repositorio.
+#   - Ninguna compilacion. Las imagenes llegan hechas desde GHCR, etiquetadas por commit. Lo que
+#     corre es exactamente lo que se probo, y volver atras es cambiar una etiqueta.
+#
+# Cada API aparece dos veces — como migrador de un solo uso y como servicio — porque son la misma
+# imagen haciendo dos trabajos. El migrador tiene que TERMINAR BIEN para que la API arranque:
+# esa es la unica linea que impide que el codigo nuevo corra sobre un esquema viejo.
+
+name: bit
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+
+  # --------------------------------------------------------------------- base de datos
+  mariadb:
+    image: mariadb:11.4
+    <<: *restart
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?falta MARIADB_ROOT_PASSWORD en .env}
+      PLATFORM_DB_NAME: ${PLATFORM_DB_NAME:-platform}
+      PLATFORM_DB_USER: ${PLATFORM_DB_USER:-platform}
+      PLATFORM_DB_PASSWORD: ${PLATFORM_DB_PASSWORD:?falta PLATFORM_DB_PASSWORD en .env}
+      PIMA_DB_NAME: ${PIMA_DB_NAME:-pima}
+      PIMA_DB_USER: ${PIMA_DB_USER:-pima}
+      PIMA_DB_PASSWORD: ${PIMA_DB_PASSWORD:?falta PIMA_DB_PASSWORD en .env}
+      TOURISM_DB_NAME: ${TOURISM_DB_NAME:-tourism}
+      TOURISM_DB_USER: ${TOURISM_DB_USER:-tourism}
+      TOURISM_DB_PASSWORD: ${TOURISM_DB_PASSWORD:?falta TOURISM_DB_PASSWORD en .env}
+    volumes:
+      - mariadb-data:/var/lib/mysql
+      # Se ejecuta UNA sola vez, cuando el volumen esta vacio. Ver db/init/01-databases.sh.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    # Un contenedor levantado no es un servidor que responde, y el migrador es lo primero que
+    # pregunta. Sin esto, el primer despliegue sobre un volumen nuevo es una carrera.
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [data]
+
+  # --------------------------------------------------------------------- migraciones
+  platform-migrate:
+    image: ghcr.io/${GHCR_OWNER:?falta GHCR_OWNER en .env}/pimaplatform:${PLATFORM_TAG:-latest}
+    command: ["Platform.Migrator.dll"]
+    restart: "no"
+    environment:
+      ConnectionStrings__DefaultConnection: "Server=mariadb;Port=3306;Database=${PLATFORM_DB_NAME:-platform};User=${PLATFORM_DB_USER:-platform};Password=${PLATFORM_DB_PASSWORD};"
+    depends_on:
+      mariadb: { condition: service_healthy }
+    networks: [data]
+
+  pima-migrate:
+    image: ghcr.io/${GHCR_OWNER}/pimacore:${PIMA_TAG:-latest}
+    command: ["Pima.Migrator.dll"]
+    restart: "no"
+    environment:
+      ConnectionStrings__DefaultConnection: "Server=mariadb;Port=3306;Database=${PIMA_DB_NAME:-pima};User=${PIMA_DB_USER:-pima};Password=${PIMA_DB_PASSWORD};"
+    depends_on:
+      mariadb: { condition: service_healthy }
+    networks: [data]
+
+  tourism-migrate:
+    image: ghcr.io/${GHCR_OWNER}/tourismcore:${TOURISM_TAG:-latest}
+    command: ["Tourism.Migrator.dll"]
+    restart: "no"
+    environment:
+      ConnectionStrings__DefaultConnection: "Server=mariadb;Port=3306;Database=${TOURISM_DB_NAME:-tourism};User=${TOURISM_DB_USER:-tourism};Password=${TOURISM_DB_PASSWORD};"
+    depends_on:
+      mariadb: { condition: service_healthy }
+    networks: [data]
+
+  # --------------------------------------------------------------------- servicios
+  platform-api:
+    image: ghcr.io/${GHCR_OWNER}/pimaplatform:${PLATFORM_TAG:-latest}
+    <<: *restart
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: "Server=mariadb;Port=3306;Database=${PLATFORM_DB_NAME:-platform};User=${PLATFORM_DB_USER:-platform};Password=${PLATFORM_DB_PASSWORD};"
+      Jwt__Issuer: ${JWT_ISSUER:-https://platform.local}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?falta JWT_SIGNING_KEY en .env}
+      # Sin el secreto del webhook la API se niega a arrancar, y eso es deliberado: la
+      # notificacion de pago es su unica ruta anonima y sin secreto no tiene contra que verificar.
+      MercadoPago__AccessToken: ${MERCADOPAGO_ACCESS_TOKEN:?falta MERCADOPAGO_ACCESS_TOKEN en .env}
+      MercadoPago__WebhookSecret: ${MERCADOPAGO_WEBHOOK_SECRET:?falta MERCADOPAGO_WEBHOOK_SECRET en .env}
+      Email__SmtpPassword: ${SMTP_PASSWORD:-}
+      Sms__Password: ${SMS_PASSWORD:-}
+    depends_on:
+      platform-migrate: { condition: service_completed_successfully }
+    networks: [data, services, edge]
+
+  pima-api:
+    image: ghcr.io/${GHCR_OWNER}/pimacore:${PIMA_TAG:-latest}
+    <<: *restart
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: "Server=mariadb;Port=3306;Database=${PIMA_DB_NAME:-pima};User=${PIMA_DB_USER:-pima};Password=${PIMA_DB_PASSWORD};"
+      Jwt__Issuer: ${JWT_ISSUER:-https://platform.local}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY}
+      Platform__BaseUrl: http://platform-api:8080
+      Platform__ClientId: ${PIMA_CLIENT_ID:?falta PIMA_CLIENT_ID en .env}
+      Platform__ClientSecret: ${PIMA_CLIENT_SECRET:?falta PIMA_CLIENT_SECRET en .env}
+      Trustfull__ApiKey: ${TRUSTFULL_API_KEY:-}
+      # Fuera del contenido estatico de la aplicacion, y sobre un volumen propio: la evidencia de
+      # una denuncia son documentos de identidad, y en el legacy se servian sin token por estar
+      # dentro de wwwroot.
+      Reports__EvidenceRoot: /var/lib/pima/evidence
+    volumes:
+      - pima-evidence:/var/lib/pima/evidence
+    depends_on:
+      pima-migrate: { condition: service_completed_successfully }
+      platform-api: { condition: service_started }
+    # Sin `edge`: a PIMA solo lo llaman servicios, asi que el proxy no puede alcanzarlo aunque
+    # alguien escriba la regla. `services` le da la salida a internet que si necesita — es quien
+    # llama al proveedor de evidencia.
+    networks: [data, services]
+
+  tourism-api:
+    image: ghcr.io/${GHCR_OWNER}/tourismcore:${TOURISM_TAG:-latest}
+    <<: *restart
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: "Server=mariadb;Port=3306;Database=${TOURISM_DB_NAME:-tourism};User=${TOURISM_DB_USER:-tourism};Password=${TOURISM_DB_PASSWORD};"
+      Jwt__Issuer: ${JWT_ISSUER:-https://platform.local}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY}
+      Platform__BaseUrl: http://platform-api:8080
+      Platform__ClientId: ${TOURISM_CLIENT_ID:?falta TOURISM_CLIENT_ID en .env}
+      Platform__ClientSecret: ${TOURISM_CLIENT_SECRET:?falta TOURISM_CLIENT_SECRET en .env}
+      Pima__BaseUrl: http://pima-api:8080
+    depends_on:
+      tourism-migrate: { condition: service_completed_successfully }
+      pima-api: { condition: service_started }
+    networks: [data, services]
+
+  bitfront:
+    image: ghcr.io/${GHCR_OWNER}/bitfront:${BITFRONT_TAG:-latest}
+    <<: *restart
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      # El navegador no habla con las APIs: el proxy de Nitro las alcanza por la red interna.
+      NUXT_PLATFORM_API_URL: http://platform-api:8080
+      NUXT_BIT_API_URL: http://tourism-api:8080
+      NUXT_SESSION_SECRET: ${SESSION_SECRET:?falta SESSION_SECRET en .env}
+    depends_on:
+      platform-api: { condition: service_started }
+      tourism-api: { condition: service_started }
+    networks: [services, edge]
+
+  # --------------------------------------------------------------------- TLS y ruteo
+  caddy:
+    image: caddy:2-alpine
+    <<: *restart
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?falta APP_DOMAIN en .env}
+      PLATFORM_DOMAIN: ${PLATFORM_DOMAIN:?falta PLATFORM_DOMAIN en .env}
+      ACME_EMAIL: ${ACME_EMAIL:?falta ACME_EMAIL en .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Los certificados sobreviven a un redespliegue. Sin esto, cada `up` vuelve a pedirlos y
+      # Let's Encrypt tiene limites.
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [edge]
+
+# Tres redes, y la que importa es la primera.
+#
+#   data     — la base y quien la consulta. `internal: true`, asi que la base de datos NO TIENE
+#              RUTA A INTERNET. Es la unica de las tres marcada asi, porque es la unica donde eso
+#              no le quita nada a nadie: PIMA y Platform si necesitan salir, a su proveedor de
+#              evidencia y al gateway de pagos.
+#   services — servicio con servicio, mas esa salida. Ningun puerto publicado: no se llega desde
+#              afuera.
+#   edge     — lo unico que el proxy alcanza. PIMA y BIT no estan aca, asi que publicarlos por
+#              accidente pide dos cambios y no uno.
+networks:
+  data:
+    internal: true
+  services:
+  edge:
+
+volumes:
+  mariadb-data:
+  pima-evidence:
+  caddy-data:
+  caddy-config:

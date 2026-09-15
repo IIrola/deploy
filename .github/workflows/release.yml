@@ -1,0 +1,51 @@
+# Desplegar: traer las imagenes y levantar.
+#
+# No compila nada y no lleva ningun secreto. Corre en el runner self-hosted que ya vive en el VPS,
+# asi que tampoco hay una clave SSH que guardar en GitHub. Los valores de produccion estan en el
+# .env que hay al lado del compose, y este workflow no los lee.
+#
+# El legacy hacia `rsync` del codigo fuente y compilaba en el VPS. Eso significaba que lo
+# desplegado no era exactamente lo probado, y que no habia artefacto al que volver.
+
+name: release
+
+on:
+  workflow_dispatch:
+  # Cada repo de codigo puede avisar cuando publico su imagen. Se deja apagado hasta que el
+  # despliegue automatico sea lo que se quiere: un `dispatch` manual es un buen lugar para
+  # empezar.
+  # repository_dispatch:
+  #   types: [image-published]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Entrar a GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Comprobar que el .env existe
+        # Falla aca y con un motivo, en vez de dejar que el compose muera con "variable is not
+        # set" por cada linea.
+        run: test -f .env || { echo "Falta .env en el VPS. Copiar .env.example y completarlo."; exit 1; }
+
+      - name: Traer las imagenes
+        run: docker compose pull
+
+      # Los migradores corren y terminan; recien despues arrancan las APIs. Si una migracion
+      # falla, `up` falla y el codigo nuevo no llega a correr.
+      - name: Levantar
+        run: docker compose up -d --remove-orphans
+
+      - name: Que quedo corriendo
+        run: docker compose ps
+
+      - name: Limpiar imagenes viejas
+        run: docker image prune -f

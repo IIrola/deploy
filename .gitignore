@@ -1,0 +1,4 @@
+# El archivo que tiene todos los secretos de produccion. Vive solo en el VPS.
+.env
+.env.*
+!.env.example

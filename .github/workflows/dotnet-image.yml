@@ -1,0 +1,66 @@
+# Construir y publicar la imagen de una de las tres APIs.
+#
+# Existe una sola vez y los tres repos la invocan, porque el dia que cambie como se construye una
+# imagen no deberia haber tres lugares que corregir. Cada repo aporta ocho lineas: que solucion
+# probar y como se llama su imagen.
+#
+# Las pruebas corren ANTES de publicar. Una imagen que llego a GHCR es una imagen cuyas pruebas
+# pasaron, y eso es lo que hace que `latest` sea usable.
+
+name: dotnet-image
+
+on:
+  workflow_call:
+    inputs:
+      solution:
+        description: Solucion a restaurar y probar (por ejemplo Platform.sln)
+        required: true
+        type: string
+      image:
+        description: Nombre de la imagen en GHCR (por ejemplo pimaplatform)
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Alcanza para publicar en GHCR con el GITHUB_TOKEN del propio workflow: ni un secreto que
+      # crear, ni uno que rotar.
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - run: dotnet restore ${{ inputs.solution }}
+
+      # Sin incremental: un build incremental esconde warnings, y en este proyecto ya se
+      # informaron mal dos veces por eso.
+      - run: dotnet build ${{ inputs.solution }} --no-restore --no-incremental -c Release
+
+      - run: dotnet test ${{ inputs.solution }} --no-build -c Release --verbosity normal
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # El SHA es lo que hace trivial volver atras; `latest` es lo que el compose toma por
+          # defecto. Las dos etiquetas apuntan a la misma imagen.
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/${{ inputs.image }}:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/${{ inputs.image }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
