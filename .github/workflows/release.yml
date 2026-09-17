@@ -37,7 +37,7 @@ jobs:
         run: cd /opt/bit || test -f .env || { echo "Falta .env en el VPS. Copiar .env.example y completarlo."; exit 1; }
 
       - name: Traer las imagenes
-        run: docker compose pull
+        run: cd /opt/bit || docker compose pull
 
       # Los migradores corren y terminan; recien despues arrancan las APIs. Si una migracion
       # falla, `up` falla y el codigo nuevo no llega a correr.
@@ -45,7 +45,7 @@ jobs:
         run: cd /opt/bit || docker compose up -d --remove-orphans
 
       - name: Que quedo corriendo
-        run: docker compose ps
+        run: cd /opt/bit || docker compose ps
 
       - name: Limpiar imagenes viejas
-        run: docker image prune -f
+        run: cd /opt/bit || docker image prune -f
