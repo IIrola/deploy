@@ -28,16 +28,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: move to dir
-        run: cd /opt/bit
-
       - name: Entrar a GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Comprobar que el .env existe
         # Falla aca y con un motivo, en vez de dejar que el compose muera con "variable is not
         # set" por cada linea.
-        run: test -f .env || { echo "Falta .env en el VPS. Copiar .env.example y completarlo."; exit 1; }
+        run: cd /opt/bit || test -f .env || { echo "Falta .env en el VPS. Copiar .env.example y completarlo."; exit 1; }
 
       - name: Traer las imagenes
         run: docker compose pull
@@ -45,7 +42,7 @@ jobs:
       # Los migradores corren y terminan; recien despues arrancan las APIs. Si una migracion
       # falla, `up` falla y el codigo nuevo no llega a correr.
       - name: Levantar
-        run: docker compose up -d --remove-orphans
+        run: cd /opt/bit || docker compose up -d --remove-orphans
 
       - name: Que quedo corriendo
         run: docker compose ps
