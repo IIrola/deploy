@@ -180,7 +180,7 @@ services:
     image: caddy:2-alpine
     <<: *restart
     ports:
-      - ""127.0.0.1:7080:80"
+      - "127.0.0.1:7080:80"
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?falta APP_DOMAIN en .env}
       CONSOLE_DOMAIN: ${CONSOLE_DOMAIN:?falta CONSOLE_DOMAIN en .env}
