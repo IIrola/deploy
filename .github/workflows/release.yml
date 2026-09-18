@@ -21,31 +21,45 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   deploy:
     runs-on: [self-hosted, linux]
 
+    defaults:
+      run:
+        working-directory: /opt/bit
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Validar entorno VPS (.env y compose)
+        run: |
+          test -f .env || { echo "ERROR: Falta el archivo .env en /opt/bit"; exit 1; }
+          test -f docker-compose.yml || test -f compose.yaml || { echo "ERROR: Falta docker-compose.yml en /opt/bit"; exit 1; }
 
-      - name: Entrar a GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Autenticar en GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Comprobar que el .env existe
-        # Falla aca y con un motivo, en vez de dejar que el compose muera con "variable is not
-        # set" por cada linea.
-        run: cd /opt/bit || test -f .env || { echo "Falta .env en el VPS. Copiar .env.example y completarlo."; exit 1; }
+      - name: Descargar imágenes actualizadas
+        run: docker compose pull
 
-      - name: Traer las imagenes
-        run: cd /opt/bit || docker compose pull
+      - name: Desplegar contenedores y esperar estado saludable
+        # --wait asegura que los healthchecks pasen antes de dar el paso por exitoso
+        run: docker compose up -d --remove-orphans --wait
 
-      # Los migradores corren y terminan; recien despues arrancan las APIs. Si una migracion
-      # falla, `up` falla y el codigo nuevo no llega a correr.
-      - name: Levantar
-        run: cd /opt/bit || docker compose up -d --remove-orphans
+      - name: Verificar estado de los servicios
+        run: docker compose ps
 
-      - name: Que quedo corriendo
-        run: cd /opt/bit || docker compose ps
+      - name: Limpiar imágenes huérfanas
+        if: always()
+        run: docker image prune -f
 
-      - name: Limpiar imagenes viejas
-        run: cd /opt/bit || docker image prune -f
+      - name: Cerrar sesión de Docker
+        if: always()
+        run: docker logout ghcr.io
