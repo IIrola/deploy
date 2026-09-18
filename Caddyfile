@@ -15,7 +15,7 @@
 	email {$ACME_EMAIL}
 }
 
-{$APP_DOMAIN} {
+http://{$APP_DOMAIN} {
 	encode zstd gzip
 	reverse_proxy web:3000
 }
@@ -23,12 +23,12 @@
 # La consola en su propio nombre, y no en una ruta del sitio publico. Separarlas es lo que permite
 # restringir esta —por IP, por VPN— sin tocar lo que tiene que ser publico: aca no hay una sola
 # pagina anonima.
-{$CONSOLE_DOMAIN} {
+http://{$CONSOLE_DOMAIN} {
 	encode zstd gzip
 	reverse_proxy console:3000
 }
 
-{$PLATFORM_DOMAIN} {
+http://{$PLATFORM_DOMAIN} {
 	encode zstd gzip
 	reverse_proxy platform-api:8080
 }
