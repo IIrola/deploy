@@ -153,11 +153,22 @@ services:
       # El navegador no habla con las APIs: el proxy de Nitro las alcanza por la red interna.
       NUXT_PLATFORM_API_URL: http://platform-api:8080
       NUXT_BIT_API_URL: http://tourism-api:8080
+      # El motor, que sólo la consola alcanza y sólo por la red interna: no está publicado y no
+      # va a estarlo. La sesión no le sirve tal cual — rechaza un token de Platform por
+      # audiencia — así que el proxy la intercambia contra Platform por uno emitido para esta
+      # audiencia, y de ahí que el nombre viaje como configuración en vez de ser un literal en
+      # tres repositorios.
+      NUXT_PIMA_API_URL: http://pima-api:8080
+      NUXT_PIMA_AUDIENCE: PimaCore.Services
       # Adónde vuelve el enlace del encabezado. Público porque el navegador lo sigue.
       NUXT_PUBLIC_SITE_URL: https://${APP_DOMAIN}
+      # La misma audiencia, del lado del navegador: el menú la necesita para leer en /auth/me si
+      # esta sesión puede moderar. Es un identificador público, no una dirección ni un secreto.
+      NUXT_PUBLIC_ENGINE_AUDIENCE: PimaCore.Services
     depends_on:
       platform-api: { condition: service_started }
       tourism-api: { condition: service_started }
+      pima-api: { condition: service_started }
     networks: [services, edge]
 
   web:
