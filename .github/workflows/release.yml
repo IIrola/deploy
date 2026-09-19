@@ -11,6 +11,9 @@ name: release
 
 on:
   workflow_dispatch:
+  
+  repository_dispatch:
+    types: [image-published]
   # Cada repo de codigo puede avisar cuando publico su imagen. Se deja apagado hasta que el
   # despliegue automatico sea lo que se quiere: un `dispatch` manual es un buen lugar para
   # empezar.
