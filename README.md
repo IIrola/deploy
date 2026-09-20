@@ -145,11 +145,12 @@ Dos nombres públicos, y es una decisión de seguridad:
 
 | Servicio | Público | Por qué |
 |---|---|---|
-| Sitio público | sí | Marketing y directorio. **Anónimo de punta a punta**: no despliega rutas de sesión, así que no hay forma de establecer una — comprobado contra la imagen, `POST /api/auth/login` responde 404 |
+| Sitio de la plataforma | sí | Qué hace el producto, para quién y cuánto sale. **Anónimo de punta a punta**: no despliega rutas de sesión, así que no hay forma de establecer una — comprobado contra la imagen, `POST /api/auth/login` responde 404 |
+| Sitio de la vertical de turismo | sí, en su propio nombre | El directorio público y lo que turismo le dice a un viajero. Anónimo por el mismo motivo y comprobado igual. **Un nombre por vertical**: sumar la segunda es un servicio, un bloque en el Caddyfile y una línea en el `.env` |
 | Consola | sí, en su propio nombre | Sólo autenticada. Su hostname aparte es lo que permite restringirla sin tocar lo que debe ser público. Su proxy de Nitro alcanza las APIs por la red interna |
 | Platform | sí | La notificación de pago es anónima y la manda el gateway desde afuera |
 | **PIMA** | **no** | Sólo la llaman servicios |
-| **Turismo** | **no** | Lo público suyo lo sirve el frontend |
+| **Turismo** | **no** | Lo público suyo lo sirve su propio sitio, `tourism-web`, por la red interna |
 
 Y las redes lo **hacen cumplir** en vez de recordarlo — comprobado que el proxy no resuelve los
 nombres de PIMA ni de Turismo:
@@ -217,7 +218,7 @@ La pregunta que originó esta forma:
 
 | Archivo | Cuántos |
 |---|---|
-| `Dockerfile` (no es YAML) | 5 — tres APIs y las dos aplicaciones del frontend |
+| `Dockerfile` (no es YAML) | 6 — tres APIs y las tres aplicaciones del frontend |
 | Workflow reutilizable de build | **1**, acá |
 | Workflow por repo | 3 × ~10 líneas invocando el reutilizable, más el del frontend |
 | `docker-compose.yml` | **1** |

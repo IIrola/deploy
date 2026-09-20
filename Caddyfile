@@ -1,15 +1,18 @@
 # TLS automatico y ruteo, en las lineas que hacen falta y ninguna mas.
 #
-# Solo dos nombres publicos, y eso es una decision de seguridad y no una omision:
+# Cuatro nombres publicos, y cuales son es una decision de seguridad y no una lista que crecio:
 #
-#   - El sitio publico y la consola: las dos aplicaciones que usa una persona. Su proxy de Nitro
-#     alcanza a las APIs por la red interna, asi que el navegador nunca les habla.
+#   - Las tres aplicaciones que usa una persona: el sitio de la plataforma, la consola y el sitio
+#     de la vertical de turismo. Su proxy de Nitro alcanza a las APIs por la red interna, asi que
+#     el navegador nunca les habla.
 #   - Platform es publica por un solo motivo: la notificacion de pago es una ruta anonima que
 #     tiene que alcanzar el gateway desde afuera.
 #
-# PIMA y BIT no tienen nombre. A PIMA solo la llaman servicios; lo publico de BIT lo sirve
-# el sitio publico. Ademas de no estar ruteados, no estan en la red `edge` del compose: publicarlos por
-# accidente requeriria dos cambios y no uno.
+# PIMA y BIT siguen sin nombre. A PIMA solo la llaman servicios; lo publico de BIT lo sirve su
+# propio sitio, por la red interna. Ademas de no estar ruteados, no estan en la red `edge` del
+# compose: publicarlos por accidente requeriria dos cambios y no uno.
+#
+# Una vertical nueva es un bloque mas aca, y nada mas.
 
 {
 	email {$ACME_EMAIL}
@@ -26,6 +29,17 @@ http://{$APP_DOMAIN} {
 http://{$CONSOLE_DOMAIN} {
 	encode zstd gzip
 	reverse_proxy console:3000
+}
+
+# La vertical, en su propio nombre. Antes la servia {$APP_DOMAIN}, que es lo que hacia que la
+# portada de todo el producto fuera la de una vertical. Consecuencia del cambio, y conviene
+# tenerla escrita: quien tenga guardado el enlace viejo del directorio llega al sitio de la
+# plataforma, que por eso enlaza a las verticales desde su encabezado y su portada.
+#
+# `http://` como los otros tres: hay un proxy delante que termina TLS.
+http://{$TOURISM_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy tourism-web:3000
 }
 
 http://{$PLATFORM_DOMAIN} {

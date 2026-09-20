@@ -139,10 +139,18 @@ services:
       pima-api: { condition: service_started }
     networks: [data, services]
 
-  # El frontend son dos aplicaciones, y la diferencia entre ellas es de seguridad y no de
-  # organización: la consola es sólo autenticada, la web es anónima de punta a punta. La web no
-  # despliega rutas de sesión, así que **no hay forma de establecer una sesión ahí** — comprobado
-  # contra la imagen: `POST /api/auth/login` responde 404.
+  # El frontend son tres aplicaciones, y se dividen por dos ejes distintos.
+  #
+  # Por **seguridad**: la consola es sólo autenticada y es la única que despliega rutas de
+  # sesión, así que en las otras dos **no hay forma de establecer una sesión** — comprobado
+  # contra las imágenes: `POST /api/auth/login` responde 404 en ambas y 400 en la consola. Eso
+  # evita emitir la cookie para el dominio padre, que es lo que haría falta si un sitio público
+  # quisiera saludar por nombre.
+  #
+  # Y por **dominio**: `web` es el sitio de la plataforma (PIMA) y `tourism-web` el de la
+  # vertical (BIT). Antes eran uno solo, con el vocabulario turístico ocupando la raíz del
+  # espacio de nombres del producto entero. Sumar una vertical es un servicio más acá, una
+  # entrada en el registro del frontend y un nombre en el Caddyfile.
   console:
     image: ghcr.io/${GHCR_OWNER}/console:${CONSOLE_TAG:-latest}
     <<: *restart
@@ -179,10 +187,34 @@ services:
       PORT: "3000"
       HOST: "0.0.0.0"
       NUXT_PLATFORM_API_URL: http://platform-api:8080
-      NUXT_BIT_API_URL: http://tourism-api:8080
       NUXT_PUBLIC_CONSOLE_URL: https://${CONSOLE_DOMAIN}
+      # Dónde vive el sitio de cada vertical, por la clave que el registro del frontend declara.
+      # La forma anidada es cómo Nuxt alcanza `public.verticalUrls.tourism`; la clave existe con
+      # un valor por defecto en la app para que esta variable la encuentre.
+      NUXT_PUBLIC_VERTICAL_URLS_TOURISM: https://${TOURISM_DOMAIN}
+    # Ya no depende de `tourism-api`: el sitio de la plataforma dejó de leer una vertical. Lee
+    # el catálogo de planes de Platform y nada más.
     depends_on:
       platform-api: { condition: service_started }
+    networks: [services, edge]
+
+  # El sitio público de la vertical de turismo. Su nombre propio, su imagen propia y su etiqueta
+  # propia: se despliega y se revierte sin tocar la plataforma.
+  tourism-web:
+    image: ghcr.io/${GHCR_OWNER}/tourism:${TOURISM_WEB_TAG:-latest}
+    <<: *restart
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      # El navegador no habla con las APIs: el proxy de Nitro alcanza a BIT por la red interna,
+      # que es por lo que `tourism-api` sigue sin nombre público.
+      NUXT_BIT_API_URL: http://tourism-api:8080
+      NUXT_PUBLIC_CONSOLE_URL: https://${CONSOLE_DOMAIN}
+      # Adónde vuelve para lo que no es turismo: cómo funciona el motor, la ayuda y los legales,
+      # que son de la plataforma y por eso viven una sola vez.
+      NUXT_PUBLIC_SITE_URL: https://${APP_DOMAIN}
+    depends_on:
       tourism-api: { condition: service_started }
     networks: [services, edge]
 
@@ -195,6 +227,7 @@ services:
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?falta APP_DOMAIN en .env}
       CONSOLE_DOMAIN: ${CONSOLE_DOMAIN:?falta CONSOLE_DOMAIN en .env}
+      TOURISM_DOMAIN: ${TOURISM_DOMAIN:?falta TOURISM_DOMAIN en .env}
       PLATFORM_DOMAIN: ${PLATFORM_DOMAIN:?falta PLATFORM_DOMAIN en .env}
       ACME_EMAIL: ${ACME_EMAIL:?falta ACME_EMAIL en .env}
     volumes:
