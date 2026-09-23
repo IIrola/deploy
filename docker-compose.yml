@@ -158,6 +158,11 @@ services:
       NODE_ENV: production
       PORT: "3000"
       HOST: "0.0.0.0"
+      # Con qué se sella la cookie de sesión. Obligatoria: sin ella la consola se niega a
+      # arrancar, a propósito — un valor por defecto sería una contraseña compartida por toda
+      # instalación que se olvidara de poner la suya, o sea una cookie que parece sellada.
+      # Sólo la consola la lleva: las dos apps públicas son anónimas y no tienen qué sellar.
+      NUXT_SESSION_SECRET: ${SESSION_SECRET:?falta SESSION_SECRET en .env}
       # El navegador no habla con las APIs: el proxy de Nitro las alcanza por la red interna.
       NUXT_PLATFORM_API_URL: http://platform-api:8080
       NUXT_BIT_API_URL: http://tourism-api:8080
