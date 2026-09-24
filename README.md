@@ -173,12 +173,93 @@ En el VPS, una vez:
 git clone https://github.com/IIrola/deploy.git /opt/bit
 cd /opt/bit
 cp .env.example .env && chmod 600 .env
-$EDITOR .env          # dominios, contraseñas, secretos
+$EDITOR .env          # dominios, contraseñas, secretos — y BOOTSTRAP_* (abajo)
 docker compose up -d
 ```
 
 De ahí en más, desplegar es correr el workflow **release** desde GitHub. Trae las imágenes y
 levanta; no compila y no lleva secretos.
+
+### El primer administrador, que no sale de ningún lado
+
+**Es el único paso de la puesta en pie que no se puede hacer desde el producto**, y la razón es
+circular: conceder el rol de plataforma exige ya tenerlo. Un despliegue recién levantado tiene
+los roles y los permisos sembrados y **cero administradores**, así que nadie puede entrar a la
+consola a crear al primero.
+
+Platform trae la semilla que lo resuelve desde la Iteración 1. Lo que faltaba hasta ahora es lo
+de este lado: **el compose no le pasaba ninguna variable**, así que la semilla nunca corría y el
+despliegue quedaba sin salida. En local no se nota, porque la cuenta existe desde la primerísima
+corrida y sobrevive a todo.
+
+En el `.env`, antes del primer `up`:
+
+```
+BOOTSTRAP_ENABLED=true
+BOOTSTRAP_EMAIL=alguien@tu-dominio
+BOOTSTRAP_PASSWORD=<mínimo 12 caracteres>
+```
+
+Levantá, entrá a `https://$CONSOLE_DOMAIN`, y **volvé a apagarlo**:
+
+```bash
+sed -i 's/^BOOTSTRAP_ENABLED=true/BOOTSTRAP_ENABLED=false/' .env
+docker compose up -d platform-api
+```
+
+Apagarlo importa. Un bootstrap siempre encendido es una cuenta conocida que viaja con cada
+despliegue, y la contraseña que la crea queda en un archivo que nadie vuelve a mirar.
+
+### El correo saliente, que hasta ahora no salía
+
+**Sin `SMTP_HOST` no hay correo, y nada falla.** Platform registra `LoggingEmailSender`, que anota
+en el log que *habría* mandado el mensaje, y sigue andando. La consecuencia es que **nadie puede
+confirmar su dirección ni recuperar su contraseña** — el código se genera, se guarda hasheado, y no
+llega a ninguna parte. La huella en el log del despliegue es exactamente ésta:
+
+```
+info: Platform.Infrastructure.Common.LoggingEmailSender[0]
+      Development email sender: would send email to alguien@ejemplo.com with subject Confirm your email address.
+```
+
+Hasta hoy este compose pasaba **una sola** variable de correo, `Email__SmtpPassword`, y además con
+el nombre equivocado: la opción es `Email:Smtp:Password`, o sea `Email__Smtp__Password` con dos
+guiones bajos. Así que el despliegue no tenía correo por dos motivos a la vez — faltaba el host, y
+la única variable que había no ligaba con ninguna clase. Lo mismo con SMS: la opción es
+`Sms:ClientSecret` y el compose pasaba `Sms__Password`.
+
+En el `.env`:
+
+```
+SMTP_HOST=smtp.tu-proveedor.com
+SMTP_PORT=587
+SMTP_USERNAME=<usuario>
+SMTP_PASSWORD=<contraseña>
+SMTP_FROM_ADDRESS=no-reply@tu-dominio
+SMTP_FROM_NAME=PIMA
+```
+
+**`SMTP_FROM_ADDRESS` es la dirección desde la que salen los mensajes**, y es obligatoria en cuanto
+hay host: Platform **se niega a arrancar** sin ella, con `Email:Smtp:FromAddress is required when a
+host is configured`. Un host sin remitente es una configuración a medias, no una decisión.
+
+Y una cola que conviene saber antes de que sorprenda: **con el SMTP roto, `POST
+/auth/email-confirmation/request` responde 500 en vez de 202.** Esa ruta es anónima y está escrita
+para responder siempre lo mismo, precisamente para que nadie pueda sondear quién tiene cuenta acá;
+si el envío falla, la excepción sube y la distingue. Verificado apuntando el host a un nombre que
+no resuelve.
+
+Tres cosas que Platform hace y conviene saber antes de que parezcan fallas:
+
+- **Con menos de 12 caracteres se niega** y lo dice en el log. No crea un administrador débil:
+  esta cuenta tiene todos los permisos de la plataforma.
+- **Encendido y sin contraseña, avisa y no hace nada.** No es un error de arranque.
+- **Nunca le toca la contraseña a una cuenta que ya existe.** Volver a encenderlo por accidente
+  no reabre nada — uno que reescribe credenciales en cada arranque no es una semilla, es una
+  puerta trasera permanente.
+
+Y una cola que hay que decir: **el correo queda confirmado al crearse**, porque todavía no hay
+flujo de correo por el cual confirmarlo y un administrador que no puede entrar no sirve de nada.
 
 ## Volver atrás
 
@@ -242,6 +323,11 @@ Tres archivos con contenido real. El resto son llamadas.
   verticales reciben sólo la pública.
 - **Sin límites de recursos ni política de backup.** Las dos dependen del VPS real y no se pueden
   elegir bien desde acá.
-- **Nada verifica el aprovisionamiento al arrancar** — ni el código de la línea de negocio, ni los
-  alcances del cliente de servicio, ni el plan del contrato. Las tres fallan tarde y con mensajes
-  que no señalan su causa.
+- **El aprovisionamiento se verifica a medias al arrancar.** *(Corregido el 2026-09-23: esta
+  línea decía que no se verifica nada, y desde la Iteración 24 el código de la línea de negocio
+  sí se verifica.)* Una vertical le pregunta a Platform si su código está declarado y activo, y
+  **se niega a arrancar** si Platform responde que no — que no es una caída sino una
+  configuración que nunca iba a funcionar. Si Platform no contesta, arranca igual y lo deja
+  dicho, porque negarse convertiría una caída de Platform en la caída de todas las verticales.
+  Lo que sigue sin verificarse son **los alcances del cliente de servicio** y **el plan del
+  contrato**: los dos fallan tarde y con mensajes que no señalan su causa.

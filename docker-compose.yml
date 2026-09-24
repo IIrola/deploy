@@ -90,8 +90,46 @@ services:
       # notificacion de pago es su unica ruta anonima y sin secreto no tiene contra que verificar.
       MercadoPago__AccessToken: ${MERCADOPAGO_ACCESS_TOKEN:?falta MERCADOPAGO_ACCESS_TOKEN en .env}
       MercadoPago__WebhookSecret: ${MERCADOPAGO_WEBHOOK_SECRET:?falta MERCADOPAGO_WEBHOOK_SECRET en .env}
-      Email__SmtpPassword: ${SMTP_PASSWORD:-}
-      Sms__Password: ${SMS_PASSWORD:-}
+      # Correo saliente. **El interruptor es el host**: sin `Email__Smtp__Host`, Platform registra
+      # `LoggingEmailSender` y se limita a anotar en el log que *habria* mandado el correo — asi
+      # que nadie puede confirmar su direccion ni recuperar su contrasena, y no falla nada.
+      #
+      # Hasta hoy este bloque pasaba **una sola** variable, `Email__SmtpPassword`, y ademas con
+      # el nombre equivocado: la opcion es `Email:Smtp:Password`, o sea `Email__Smtp__Password`
+      # con dos guiones bajos. La que habia no ligaba con ninguna clase, asi que el despliegue no
+      # tenia correo por dos motivos a la vez.
+      #
+      # `FromAddress` es la direccion **desde la que salen** los mensajes, y es obligatoria en
+      # cuanto hay host: Platform se niega a arrancar si esta vacia, porque un host configurado
+      # sin remitente es una configuracion a medias y no una decision.
+      Email__Smtp__Host: ${SMTP_HOST:-}
+      Email__Smtp__Port: ${SMTP_PORT:-587}
+      Email__Smtp__UseStartTls: ${SMTP_USE_STARTTLS:-true}
+      Email__Smtp__Username: ${SMTP_USERNAME:-}
+      Email__Smtp__Password: ${SMTP_PASSWORD:-}
+      Email__Smtp__FromAddress: ${SMTP_FROM_ADDRESS:-}
+      Email__Smtp__FromName: ${SMTP_FROM_NAME:-PIMA}
+      # SMS, con la misma forma y el mismo defecto corregido: la opcion es `Sms:ClientSecret`,
+      # no `Sms:Password`. Sin `Sms__Endpoint` el canal queda en su stand-in.
+      Sms__Endpoint: ${SMS_ENDPOINT:-}
+      Sms__ClientId: ${SMS_CLIENT_ID:-}
+      Sms__ClientSecret: ${SMS_CLIENT_SECRET:-}
+      # El primer administrador de plataforma, y el unico paso que no se puede hacer desde el
+      # producto: conceder el rol de plataforma exige ya tenerlo. Estaba construido en Platform
+      # desde la Iteracion 1 y **este compose no lo invocaba**, asi que un despliegue nuevo
+      # levantaba con los roles sembrados y cero administradores, sin salida.
+      #
+      # Apagado por defecto, y esa es la mitad importante: un bootstrap siempre encendido con una
+      # contrasena vieja en el `.env` es una cuenta conocida que viaja con el despliegue. Se
+      # enciende una vez, se entra, y se vuelve a apagar.
+      #
+      # No se marcan obligatorias con `:?` porque el caso normal es que esten vacias. Quien
+      # valida es Platform, que es donde la regla puede ser condicional: enciende y sin
+      # contrasena avisa y no hace nada, y con menos de 12 caracteres **se niega** — esta cuenta
+      # tiene todos los permisos de la plataforma.
+      Bootstrap__Enabled: ${BOOTSTRAP_ENABLED:-false}
+      Bootstrap__Email: ${BOOTSTRAP_EMAIL:-}
+      Bootstrap__Password: ${BOOTSTRAP_PASSWORD:-}
     depends_on:
       platform-migrate: { condition: service_completed_successfully }
     networks: [data, services, edge]
