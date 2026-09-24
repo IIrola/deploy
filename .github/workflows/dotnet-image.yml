@@ -60,6 +60,11 @@ jobs:
         with:
           context: .
           push: true
+          # El commit, adentro del binario. `.git/` no viaja en el contexto de build —y no debe—,
+          # asi que sin esto la version que el servicio registra al arrancar sale sin commit y
+          # «¿se re-desplego lo que acabo de pushear?» no se puede contestar mirando el log.
+          build-args: |
+            SOURCE_COMMIT=${{ github.sha }}
           # El SHA es lo que hace trivial volver atras; `latest` es lo que el compose toma por
           # defecto. Las dos etiquetas apuntan a la misma imagen.
           tags: |
