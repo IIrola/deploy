@@ -60,6 +60,27 @@ jobs:
           git pull --ff-only
           echo "compose en $(git rev-parse --short HEAD)"
 
+      # Nombrar TODO lo que falta, de una vez.
+      #
+      # Va **despues** de traer el compose, porque es el compose nuevo el que define que hace
+      # falta: traerlo puede sumar variables que el .env del VPS no tenia — y eso no es raro,
+      # es lo normal cuando el compose llevaba tiempo sin actualizarse. `TOURISM_DOMAIN` y
+      # `SESSION_SECRET` aparecieron asi.
+      #
+      # Compose ya falla por su cuenta al interpolar, pero lo hace con un error por variable y
+      # mezclado con advertencias. Esto lo dice antes, junto, y con el nombre de cada una.
+      - name: Comprobar que el .env tiene todo lo que el compose exige
+        run: |
+          faltan=$(grep -oE '\$\{[A-Z_][A-Z0-9_]*:\?' docker-compose.yml             | sed 's/^\${//; s/:?$//' | sort -u             | while read -r v; do grep -qE "^[[:space:]]*$v=" .env || echo "  $v"; done)
+          if [ -n "$faltan" ]; then
+            echo "ERROR: al .env de /opt/bit le faltan variables que el compose exige:"
+            echo "$faltan"
+            echo ""
+            echo "Estan documentadas en .env.example, que este pull acaba de actualizar."
+            exit 1
+          fi
+          echo "El .env tiene las $(grep -coE '\$\{[A-Z_][A-Z0-9_]*:\?' docker-compose.yml) obligatorias."
+
       - name: Autenticar en GHCR
         uses: docker/login-action@v3
         with:
