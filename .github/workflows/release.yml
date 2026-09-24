@@ -42,6 +42,24 @@ jobs:
           test -f .env || { echo "ERROR: Falta el archivo .env en /opt/bit"; exit 1; }
           test -f docker-compose.yml || test -f compose.yaml || { echo "ERROR: Falta docker-compose.yml en /opt/bit"; exit 1; }
 
+      # Traer el compose de este repositorio antes de levantar.
+      #
+      # **Faltaba, y el sintoma no se parece a la causa.** Este workflow corre dentro de /opt/bit
+      # —un clon de este repo— y hacia `pull` de las imagenes y `up`, sin actualizar nunca el
+      # compose. Asi que un cambio al compose se pusheaba, el release corria en verde, y en
+      # produccion seguia corriendo el archivo viejo: las variables nuevas no se le pasaban a
+      # ningun contenedor. Alguien pone el valor en el .env, comprueba que esta, y no pasa nada —
+      # que es exactamente como se descubrio, con el correo saliente.
+      #
+      # `--ff-only` a proposito: si alguien edito el compose en el VPS, esto **falla** en vez de
+      # fusionar a ciegas. Un despliegue que resuelve un conflicto solo no es un despliegue.
+      # El .env no se toca: esta en .gitignore y vive unicamente en el VPS.
+      - name: Actualizar el compose desde el repositorio
+        run: |
+          git fetch origin
+          git pull --ff-only
+          echo "compose en $(git rev-parse --short HEAD)"
+
       - name: Autenticar en GHCR
         uses: docker/login-action@v3
         with:

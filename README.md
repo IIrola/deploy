@@ -243,6 +243,37 @@ SMTP_FROM_NAME=PIMA
 hay host: Platform **se niega a arrancar** sin ella, con `Email:Smtp:FromAddress is required when a
 host is configured`. Un host sin remitente es una configuración a medias, no una decisión.
 
+#### Campo por campo, y de dónde sale cada uno si venías del legacy
+
+El legacy mandaba correo por **Gmail con una contraseña de aplicación**, y tenía
+`smtp.gmail.com:587` **escrito en el código** (`GoogleWorkspaceEmailSender`). Por eso su `.env`
+tenía **una sola** variable de correo, `EMAIL_PASSWORD`, y nadie recuerda haber configurado un
+host: no había dónde ponerlo.
+
+| Nuevo | Qué va | En el legacy |
+|---|---|---|
+| `SMTP_HOST` | `smtp.gmail.com` | **estaba en el código**, no en configuración |
+| `SMTP_PORT` | `587` | ídem |
+| `SMTP_USE_STARTTLS` | `true` | ídem (`EnableSsl = true`) |
+| `SMTP_USERNAME` | **la cuenta completa**, `notifications-no-reply@tu-dominio` | `EmailSettings:SenderEmail` |
+| `SMTP_PASSWORD` | la **contraseña de aplicación** de esa cuenta, 16 caracteres **sin espacios** | `EmailSettings:AppPassword` ← `EMAIL_PASSWORD` |
+| `SMTP_FROM_ADDRESS` | **la misma cuenta** que `SMTP_USERNAME` | `EmailSettings:SenderEmail` otra vez |
+| `SMTP_FROM_NAME` | lo que ve quien recibe, p. ej. `PIMA` | `EmailSettings:SenderName` |
+
+**El renglón que más se equivoca es `SMTP_USERNAME`.** En el legacy `SenderEmail` hacía de dos
+cosas a la vez —la credencial con la que se autenticaba *y* el remitente del mensaje— y acá son
+dos campos. Si sólo llenás `SMTP_FROM_ADDRESS` y dejás el usuario vacío, **el servicio se conecta
+sin autenticarse** y Gmail lo rechaza. El bloque de arranque lo dice con todas las letras:
+
+```
+      usuario .......... (sin autenticacion)
+```
+
+Dos cosas más de Gmail, que no son de este repositorio pero cuestan la misma tarde: una contraseña
+de aplicación **exige verificación en dos pasos** en esa cuenta, y `SMTP_FROM_ADDRESS` tiene que
+ser esa misma cuenta o un alias autorizado — Gmail no deja mandar en nombre de una dirección
+cualquiera.
+
 Y una cola que conviene saber antes de que sorprenda: **con el SMTP roto, `POST
 /auth/email-confirmation/request` responde 500 en vez de 202.** Esa ruta es anónima y está escrita
 para responder siempre lo mismo, precisamente para que nadie pueda sondear quién tiene cuenta acá;
