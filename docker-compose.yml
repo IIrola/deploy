@@ -32,6 +32,9 @@ services:
       TOURISM_DB_NAME: ${TOURISM_DB_NAME:-tourism}
       TOURISM_DB_USER: ${TOURISM_DB_USER:-tourism}
       TOURISM_DB_PASSWORD: ${TOURISM_DB_PASSWORD:?falta TOURISM_DB_PASSWORD en .env}
+      BIDA_DB_NAME: ${BIDA_DB_NAME:-automotive}
+      BIDA_DB_USER: ${BIDA_DB_USER:-automotive}
+      BIDA_DB_PASSWORD: ${BIDA_DB_PASSWORD:?falta BIDA_DB_PASSWORD en .env}
     volumes:
       - mariadb-data:/var/lib/mysql
       # Se ejecuta UNA sola vez, cuando el volumen esta vacio. Ver db/init/01-databases.sh.
@@ -73,6 +76,20 @@ services:
     restart: "no"
     environment:
       ConnectionStrings__DefaultConnection: "Server=mariadb;Port=3306;Database=${TOURISM_DB_NAME:-tourism};User=${TOURISM_DB_USER:-tourism};Password=${TOURISM_DB_PASSWORD};"
+    depends_on:
+      mariadb: { condition: service_healthy }
+    networks: [data]
+
+  # La segunda vertical, y **lo que hizo falta agregar acá es todo lo que hizo falta agregar**:
+  # un migrador, un servicio, una base y un par de credenciales. Ni Platform ni PIMA cambiaron —
+  # el motor no sabe que existen verticales y la plataforma sólo tiene una fila más en su tabla
+  # de líneas de negocio.
+  bida-migrate:
+    image: ghcr.io/${GHCR_OWNER}/automotivecore:${BIDA_TAG:-latest}
+    command: ["Automotive.Migrator.dll"]
+    restart: "no"
+    environment:
+      ConnectionStrings__DefaultConnection: "Server=mariadb;Port=3306;Database=${BIDA_DB_NAME:-automotive};User=${BIDA_DB_USER:-automotive};Password=${BIDA_DB_PASSWORD};"
     depends_on:
       mariadb: { condition: service_healthy }
     networks: [data]
@@ -177,18 +194,33 @@ services:
       pima-api: { condition: service_started }
     networks: [data, services]
 
-  # El frontend son tres aplicaciones, y se dividen por dos ejes distintos.
+  # No esta en `edge`, igual que las otras dos APIs internas: a una vertical la llama la consola
+  # por la red de servicios, y su superficie publica —la ficha de un vendedor— la sirve quien
+  # tenga que servirla. Publicarla por accidente pide dos cambios y no uno.
+  bida-api:
+    image: ghcr.io/${GHCR_OWNER}/automotivecore:${BIDA_TAG:-latest}
+    <<: *restart
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: "Server=mariadb;Port=3306;Database=${BIDA_DB_NAME:-automotive};User=${BIDA_DB_USER:-automotive};Password=${BIDA_DB_PASSWORD};"
+      Jwt__Issuer: ${JWT_ISSUER:-https://platform.local}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY}
+      Platform__BaseUrl: http://platform-api:8080
+      Platform__ClientId: ${BIDA_CLIENT_ID:?falta BIDA_CLIENT_ID en .env}
+      Platform__ClientSecret: ${BIDA_CLIENT_SECRET:?falta BIDA_CLIENT_SECRET en .env}
+      Pima__BaseUrl: http://pima-api:8080
+    depends_on:
+      bida-migrate: { condition: service_completed_successfully }
+      pima-api: { condition: service_started }
+    networks: [data, services]
+
+  # **El frontend es una sola aplicacion: la consola.**
   #
-  # Por **seguridad**: la consola es sólo autenticada y es la única que despliega rutas de
-  # sesión, así que en las otras dos **no hay forma de establecer una sesión** — comprobado
-  # contra las imágenes: `POST /api/auth/login` responde 404 en ambas y 400 en la consola. Eso
-  # evita emitir la cookie para el dominio padre, que es lo que haría falta si un sitio público
-  # quisiera saludar por nombre.
-  #
-  # Y por **dominio**: `web` es el sitio de la plataforma (PIMA) y `tourism-web` el de la
-  # vertical (BIT). Antes eran uno solo, con el vocabulario turístico ocupando la raíz del
-  # espacio de nombres del producto entero. Sumar una vertical es un servicio más acá, una
-  # entrada en el registro del frontend y un nombre en el Caddyfile.
+  # Los sitios publicos —el de cada vertical y el de la plataforma— son estaticos, estan hechos
+  # en Astro y viven en otro repositorio; entran a este producto enlazando el inicio de sesion y
+  # el alta de la consola. Asi que lo que se despliega aca es lo unico que necesita una sesion,
+  # y la propiedad de seguridad que antes habia que comprobar entre tres imagenes ahora es
+  # estructural: **no hay otra app a la que se le pudiera escapar una cookie**.
   console:
     image: ghcr.io/${GHCR_OWNER}/console:${CONSOLE_TAG:-latest}
     <<: *restart
@@ -210,9 +242,13 @@ services:
       # audiencia, y de ahí que el nombre viaje como configuración en vez de ser un literal en
       # tres repositorios.
       NUXT_PIMA_API_URL: http://pima-api:8080
+      NUXT_BIDA_API_URL: http://bida-api:8080
       NUXT_PIMA_AUDIENCE: PimaCore.Services
       # Adónde vuelve el enlace del encabezado. Público porque el navegador lo sigue.
-      NUXT_PUBLIC_SITE_URL: https://${APP_DOMAIN}
+      # El sitio publico, que ya no lo despliega este compose: es estatico, esta hecho en Astro
+      # y vive en otro repositorio. La consola sale hacia el por esta URL y no necesita saber
+      # nada mas. URL completa y no un dominio, porque puede estar en cualquier host y esquema.
+      NUXT_PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:?falta PUBLIC_SITE_URL en .env}
       # La misma audiencia, del lado del navegador: el menú la necesita para leer en /auth/me si
       # esta sesión puede moderar. Es un identificador público, no una dirección ni un secreto.
       NUXT_PUBLIC_ENGINE_AUDIENCE: PimaCore.Services
@@ -222,55 +258,13 @@ services:
       pima-api: { condition: service_started }
     networks: [services, edge]
 
-  web:
-    image: ghcr.io/${GHCR_OWNER}/web:${WEB_TAG:-latest}
-    <<: *restart
-    environment:
-      NODE_ENV: production
-      PORT: "3000"
-      HOST: "0.0.0.0"
-      NUXT_PLATFORM_API_URL: http://platform-api:8080
-      NUXT_PUBLIC_CONSOLE_URL: https://${CONSOLE_DOMAIN}
-      # Dónde vive el sitio de cada vertical, por la clave que el registro del frontend declara.
-      # La forma anidada es cómo Nuxt alcanza `public.verticalUrls.tourism`; la clave existe con
-      # un valor por defecto en la app para que esta variable la encuentre.
-      NUXT_PUBLIC_VERTICAL_URLS_TOURISM: https://${TOURISM_DOMAIN}
-    # Ya no depende de `tourism-api`: el sitio de la plataforma dejó de leer una vertical. Lee
-    # el catálogo de planes de Platform y nada más.
-    depends_on:
-      platform-api: { condition: service_started }
-    networks: [services, edge]
-
-  # El sitio público de la vertical de turismo. Su nombre propio, su imagen propia y su etiqueta
-  # propia: se despliega y se revierte sin tocar la plataforma.
-  tourism-web:
-    image: ghcr.io/${GHCR_OWNER}/tourism:${TOURISM_WEB_TAG:-latest}
-    <<: *restart
-    environment:
-      NODE_ENV: production
-      PORT: "3000"
-      HOST: "0.0.0.0"
-      # El navegador no habla con las APIs: el proxy de Nitro alcanza a BIT por la red interna,
-      # que es por lo que `tourism-api` sigue sin nombre público.
-      NUXT_BIT_API_URL: http://tourism-api:8080
-      NUXT_PUBLIC_CONSOLE_URL: https://${CONSOLE_DOMAIN}
-      # Adónde vuelve para lo que no es turismo: cómo funciona el motor, la ayuda y los legales,
-      # que son de la plataforma y por eso viven una sola vez.
-      NUXT_PUBLIC_SITE_URL: https://${APP_DOMAIN}
-    depends_on:
-      tourism-api: { condition: service_started }
-    networks: [services, edge]
-
-  # --------------------------------------------------------------------- TLS y ruteo
   caddy:
     image: caddy:2-alpine
     <<: *restart
     ports:
       - "127.0.0.1:7085:80"
     environment:
-      APP_DOMAIN: ${APP_DOMAIN:?falta APP_DOMAIN en .env}
       CONSOLE_DOMAIN: ${CONSOLE_DOMAIN:?falta CONSOLE_DOMAIN en .env}
-      TOURISM_DOMAIN: ${TOURISM_DOMAIN:?falta TOURISM_DOMAIN en .env}
       PLATFORM_DOMAIN: ${PLATFORM_DOMAIN:?falta PLATFORM_DOMAIN en .env}
       ACME_EMAIL: ${ACME_EMAIL:?falta ACME_EMAIL en .env}
     volumes:

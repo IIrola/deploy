@@ -31,7 +31,14 @@ jobs:
       packages: write
 
     steps:
+      # Con submodulos: las verticales montan el kit compartido en `kit/`, y sus proyectos lo
+      # referencian por ruta relativa. Sin esta linea el checkout deja la carpeta vacia y
+      # **`dotnet restore` no falla** — omite el ProjectReference que no encuentra y devuelve
+      # exito —, asi que el pipeline muere despues, en el build, con una pared de CS0246 que
+      # nombra tipos y nunca nombra la carpeta que falta. Un repo sin submodulos no paga nada.
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: actions/setup-dotnet@v4
         with:

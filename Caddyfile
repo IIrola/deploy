@@ -1,16 +1,19 @@
 # TLS automatico y ruteo, en las lineas que hacen falta y ninguna mas.
 #
-# Cuatro nombres publicos, y cuales son es una decision de seguridad y no una lista que crecio:
+# Dos nombres publicos, y cuales son es una decision de seguridad y no una lista que crecio:
 #
-#   - Las tres aplicaciones que usa una persona: el sitio de la plataforma, la consola y el sitio
-#     de la vertical de turismo. Su proxy de Nitro alcanza a las APIs por la red interna, asi que
-#     el navegador nunca les habla.
-#   - Platform es publica por un solo motivo: la notificacion de pago es una ruta anonima que
-#     tiene que alcanzar el gateway desde afuera.
+#   - La consola, que es la unica aplicacion que despliega rutas de sesion. Su proxy de Nitro
+#     alcanza a las APIs por la red interna, asi que el navegador nunca les habla.
+#   - Platform, por un solo motivo: la notificacion de pago es una ruta anonima que tiene que
+#     alcanzar el gateway desde afuera.
 #
-# PIMA y BIT siguen sin nombre. A PIMA solo la llaman servicios; lo publico de BIT lo sirve su
-# propio sitio, por la red interna. Ademas de no estar ruteados, no estan en la red `edge` del
-# compose: publicarlos por accidente requeriria dos cambios y no uno.
+# **Los sitios estaticos no estan aca**: el de cada vertical y el de la plataforma viven en otro
+# repositorio, en Astro, y entran a este producto enlazando el inicio de sesion y el alta de la
+# consola. Lo que este proxy publica es lo que necesita una sesion.
+#
+# PIMA, BIT y BIDA siguen sin nombre. A PIMA solo la llaman servicios, y a las verticales la
+# consola por la red interna. Ademas de no estar ruteadas, no estan en la red `edge` del compose:
+# publicarlas por accidente requeriria dos cambios y no uno.
 #
 # Una vertical nueva es un bloque mas aca, y nada mas.
 
@@ -18,28 +21,13 @@
 	email {$ACME_EMAIL}
 }
 
-http://{$APP_DOMAIN} {
-	encode zstd gzip
-	reverse_proxy web:3000
-}
-
-# La consola en su propio nombre, y no en una ruta del sitio publico. Separarlas es lo que permite
-# restringir esta —por IP, por VPN— sin tocar lo que tiene que ser publico: aca no hay una sola
-# pagina anonima.
+# **Dos nombres publicos y no cuatro.** Los sitios estaticos —el de cada vertical y el de la
+# plataforma— viven en otro repositorio, en Astro, y entran a este producto enlazando el inicio
+# de sesion y el alta de la consola. Lo que este proxy publica es lo que necesita una sesion y la
+# unica API que tiene que recibir llamadas de afuera.
 http://{$CONSOLE_DOMAIN} {
 	encode zstd gzip
 	reverse_proxy console:3000
-}
-
-# La vertical, en su propio nombre. Antes la servia {$APP_DOMAIN}, que es lo que hacia que la
-# portada de todo el producto fuera la de una vertical. Consecuencia del cambio, y conviene
-# tenerla escrita: quien tenga guardado el enlace viejo del directorio llega al sitio de la
-# plataforma, que por eso enlaza a las verticales desde su encabezado y su portada.
-#
-# `http://` como los otros tres: hay un proxy delante que termina TLS.
-http://{$TOURISM_DOMAIN} {
-	encode zstd gzip
-	reverse_proxy tourism-web:3000
 }
 
 http://{$PLATFORM_DOMAIN} {

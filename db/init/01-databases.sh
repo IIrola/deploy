@@ -30,7 +30,12 @@ CREATE DATABASE IF NOT EXISTS \`${TOURISM_DB_NAME}\`
 CREATE USER IF NOT EXISTS '${TOURISM_DB_USER}'@'%' IDENTIFIED BY '${TOURISM_DB_PASSWORD}';
 GRANT ALL PRIVILEGES ON \`${TOURISM_DB_NAME}\`.* TO '${TOURISM_DB_USER}'@'%';
 
+CREATE DATABASE IF NOT EXISTS \`${BIDA_DB_NAME}\`
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '${BIDA_DB_USER}'@'%' IDENTIFIED BY '${BIDA_DB_PASSWORD}';
+GRANT ALL PRIVILEGES ON \`${BIDA_DB_NAME}\`.* TO '${BIDA_DB_USER}'@'%';
+
 FLUSH PRIVILEGES;
 SQL
 
-echo "init: listo — 3 bases, 3 usuarios, ninguno con acceso a la base de otro"
+echo "init: listo — 4 bases, 4 usuarios, ninguno con acceso a la base de otro"
