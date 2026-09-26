@@ -20,6 +20,13 @@ on:
         description: Nombre de la imagen en GHCR (por ejemplo pimaplatform)
         required: true
         type: string
+    secrets:
+      KIT_READ_TOKEN:
+        description: >-
+          PAT de alcance fino con `Contents: Read` sobre el repo que se construye **y** sobre el
+          kit. Solo lo necesitan las verticales, que montan el kit como submodulo privado. Un repo
+          sin submodulos no lo pasa y el checkout cae al GITHUB_TOKEN propio.
+        required: false
 
 jobs:
   build:
@@ -36,9 +43,37 @@ jobs:
       # **`dotnet restore` no falla** — omite el ProjectReference que no encuentra y devuelve
       # exito —, asi que el pipeline muere despues, en el build, con una pared de CS0246 que
       # nombra tipos y nunca nombra la carpeta que falta. Un repo sin submodulos no paga nada.
+      #
+      # Y el token, que es lo que faltaba: el GITHUB_TOKEN de un workflow esta acotado a **su**
+      # repositorio, asi que no puede clonar otro repositorio privado de la misma organizacion — y
+      # GitHub contesta `not found` en vez de `forbidden`, que es por lo que el mensaje despista.
+      # El checkout usa el mismo token para el repo principal y para sus submodulos de github.com,
+      # de modo que el PAT necesita `Contents: Read` sobre los dos.
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          token: ${{ secrets.KIT_READ_TOKEN || github.token }}
+
+      # Que un submodulo este declarado no prueba que este. `checkout` registra el que no pudo
+      # clonar y sigue; `dotnet restore` omite su ProjectReference y devuelve exito. Las dos
+      # herramientas a las que les falta la pieza callan, y el rojo aparece treinta lineas despues
+      # nombrando tipos y nunca la carpeta vacia. Esto lo convierte en un rojo que dice su causa.
+      #
+      # La lista sale de `.gitmodules` y no escrita a mano: un repo sin submodulos no paga nada, y
+      # el dia que una vertical monte un segundo, entra solo.
+      - name: Todo submodulo declarado tiene contenido
+        run: |
+          [ -f .gitmodules ] || { echo "Este repo no declara submodulos."; exit 0; }
+          paths=$(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' | cut -d' ' -f2-)
+          vacios=
+          for p in $paths; do
+            [ -n "$(ls -A "$p" 2>/dev/null)" ] || vacios="$vacios $p"
+          done
+          if [ -n "$vacios" ]; then
+            echo "::error::Submodulo declarado y vacio:$vacios — el checkout no pudo clonarlo. Si es privado, revisa el secreto KIT_READ_TOKEN."
+            exit 1
+          fi
+          echo "Submodulos con contenido:$paths"
 
       - uses: actions/setup-dotnet@v4
         with:
